@@ -1,9 +1,11 @@
 import bs4
+import sys
 import requests
 import urllib.parse
 import json
-import datetime
-import time
+from datetime import datetime
+import re
+from dateutil.relativedelta import relativedelta
 
 def search_endpoint(phrase, completed=False):
     params = [("_nkw", phrase)]
@@ -27,25 +29,55 @@ def get_exact_items(soup):
     else:
         return rewrite_start.findPreviousSiblings(class_="s-item")
 
-def extract_product(item):
-    end = time.strptime(item.find(class_="s-item__time-end").getText(), '(%a, %H:%M)')
-    curr = time.localtime()
+def extract_purchase_type(phrase, completed, url, item):
+    purchase_options_el = item.find(class_="s-item__purchase-options")
 
-    # sync all parts except day of week and time of day
-    end.tm_year = curr.tm_year
-    end.tm_mon = curr.tm_mon
-    end.tm_mday = curr.tm_mday
-    end.tm_yday = curr.tm_yday
-    end.tm_isdst = curr.tm_isdst
-    end.tm_zone = curr.tm_zone
-    end.tm_gmtoff = curr.tm_gmtoff
+    # If there are no purchase options, assume auction, calculate time left
+    if purchase_options_el is None:
+        time_left_el = item.find(class_="s-item__time-left")
+        if time_left_el is None:
+            print(f"Warning: Couldn't find time on '{url}'", file=sys.stderr)
+            return None
+        else:
+            time_left_raw = time_left_el.getText()
+            time_left = re.match(r"(([0-9]+)d)? ?(([0-9]+)h)? ?(([0-9]+)m)?", time_left_raw)
+            if time_left is None:
+                print(f"Warning: Couldn't parse time from '{time_left_raw}' on '{url}'", file=sys.stderr)
+                return None
+            else:
+                (_, dd_raw, _, hh_raw, _, mm_raw) = time_left.groups()
+                dd = int(dd_raw) if dd_raw is not None else 0
+                hh = int(hh_raw) if hh_raw is not None else 0
+                mm = int(mm_raw) if mm_raw is not None else 0
+                ends_at = datetime.now() + relativedelta(days=dd, hours=hh, minutes=mm)
+                ends_at = ends_at.replace(microsecond=0)
+                return ends_at.isoformat()
+
+    purchase_options = purchase_options_el.getText()
+    if purchase_options == 'or Best Offer':
+        return 'best_offer'
+    elif purchase_options == 'Buy It Now':
+        return 'buy_it_now'
+    else:
+        print(f"Warning: Unrecognized purchase type '{purchase_options}' on '{url}'", file=sys.stderr)
+        return None
+
+def extract_product(phrase, completed, item):
+    # Extract title, url, id
+    title = item.find(class_="s-item__title").getText()
+    url = item.find(class_="s-item__link").attrs['href'].split('?')[0]
+    item_id = item.attrs['id']
+    if completed:
+        purchase_type = None
+    else:
+        purchase_type = extract_purchase_type(phrase, completed, url, item)
 
     return {
-        'title': item.find(class_="s-item__title").getText(),
-        'id': item.attrs['id'],
-        'seen': False,
-        'interesting': False,
-        'url': item.find(class_="s-item__link").attrs['href'].split('?')[0]
+        'title': title,
+        'id': item_id,
+        'url': url,
+        'purchase_type': purchase_type,
+        'completed': completed
     }
 
 def search_products(phrase, completed=False):
@@ -54,7 +86,7 @@ def search_products(phrase, completed=False):
         return None
     products = {}
     for item in get_exact_items(soup):
-        product = extract_product(item)
+        product = extract_product(phrase, completed, item)
         products[product['id']] = product
     return products
 
@@ -76,8 +108,12 @@ def update_records():
                     for product_id, product in found_products.items():
                         if product_id not in group['products']:
                             print(f"Found new product: {product['title']}")
+                            product['seen'] = False
+                            product['interesting'] = False
                             group['products'][product_id] = product
-                        group['products'][product_id]["last_retrieved"] = str(datetime.datetime.now())
+                        else:
+                            group['products'][product_id].update(product)
+                        group['products'][product_id]["last_retrieved"] = datetime.now().replace(microsecond=0).isoformat()
                         group['products'][product_id]["completed"] = completed
 
     with open("/home/dylan/ebay.json", "w") as f:

@@ -11,7 +11,7 @@ function yes_or_no {
 
 products=$(mktemp)
 echo $products >&2
-jq -r 'to_entries[] | .key as $key | .value.products[] | select(.seen | not) | "\($key) \(.id) \(.url)"' ~/ebay.json >$products
+jq -r 'to_entries[] | .key as $key | .value.products[] | select((.seen | not) and (.completed | not)) | "\($key) \(.id) \(.url)"' ~/ebay.json >$products
 cat $products
 
 while read -u 3 key id url; do
