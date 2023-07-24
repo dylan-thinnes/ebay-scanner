@@ -1,3 +1,2 @@
 #!/usr/bin/env bash
-jq -r '.[].products[] | select(.seen and (.completed | not) and .interesting) | .purchase_type | try fromdateiso8601 catch .' ~/ebay.json
-#jq -r '.[].products[] | select((.seen | not) and (.completed | not))' ~/ebay.json
+./summarize.jq < ~/ebay.json | tee ~/ebay-status
