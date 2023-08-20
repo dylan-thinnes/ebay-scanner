@@ -9,21 +9,36 @@ def earliest_end_time:
     | mktime
     | . - now
     | select(. > 0)
-  ) | min | try strftime("%-dd %-Hh %Mm") catch "_"
+  )
+  | min
+  | nulls
+  | try [. / 86400 | floor, . % 86400 / 3600 | floor, . % 3600 / 60 | floor] catch empty
   ;
 
 def null_time: any(.purchase_type == null);
 
 def buy_any_now: any((.purchase_type == "buy_it_now") or (.purchase_type == "best_offer"));
 
-{
-  "interesting_time": (interesting | earliest_end_time),
-  "interesting_buy_now": (interesting | buy_any_now | if . then "!" else "" end),
-  "interesting_null": (interesting | null_time | if . then "?" else "" end),
+def summarize(name; f):
+  {
+    (name + "_time"): (f | earliest_end_time // null),
+    (name + "_buy_now"): (f | buy_any_now | if . then "!" else "" end),
+    (name + "_null"): (f | null_time | if . then "?" else "" end),
+  }
+  ;
 
-  "unseen_time": (unseen | earliest_end_time),
-  "unseen_buy_now": (unseen | buy_any_now | if . then "!" else "" end),
-  "unseen_null": (unseen | null_time | if . then "?" else "" end),
-} |
-
-"\(.interesting_time)\(.interesting_buy_now)\(.interesting_null) \(.unseen_time)\(.unseen_buy_now)\(.unseen_null)"
+interesting | earliest_end_time
+#summarize("interesting"; interesting) + summarize("unseen"; unseen)
+# | [ "<span color='#"
+#   , if .unseen_buy_now == "!" or .unseen_time[0] == 0 then "ff0000" else "ffffff" end
+#   , "'>"
+#   , (.interesting_time | values | "\(.[0])d \(.[1])h \(.[2])m" // "")
+#   , .interesting_buy_now
+#   , .interesting_null
+#   , ","
+#   , (.unseen_time | values | "\(.[0])d \(.[1])h \(.[2])m" // "")
+#   , .unseen_buy_now
+#   , .unseen_null
+#   , "</span>"
+#   ]
+# | add
