@@ -1,0 +1,12 @@
+echo """
+demonstration
+classroom
+advertising
+giant
+7'
+84\"
+7 foot
+84 inch
+""" | grep . | tr ' ' '+' | while read line; do
+  echo firefox "https://www.ebay.com/sch/i.html?_nkw=$line+slide+rule"
+done
